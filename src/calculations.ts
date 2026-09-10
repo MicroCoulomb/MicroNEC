@@ -71,7 +71,7 @@ const display = (number: number) => Number(number.toFixed(1)).toString()
 const apparentLoadVa = (amps: number, voltage: number, phase: 1 | 3) => amps * voltage * (phase === 3 ? Math.sqrt(3) : 1)
 const apparentPower = (va: number) => va >= 10_000 ? `${display(va / 1000)} kVA` : `${Math.round(va).toLocaleString()} VA`
 const circuitPoles = (phase: 1 | 3, voltage: number) => phase === 3 ? 3 : voltage <= 120 ? 1 : 2
-const apparentPowerPerPhase = (label: string, va: number, poles: number): [string, string][] => poles === 1 ? [] : [[`${label} per phase`, apparentPower(va / (poles === 3 ? 3 : 1))]]
+const apparentPowerPerPhase = (label: string, va: number, poles: number): [string, string][] => poles === 1 ? [] : [[`${label} per phase`, apparentPower(va / poles)]]
 const conductorFor = (amps: number, material: Material, terminal: number, insulation: number, ambient: number, ccc: number) => {
   const adjusted = adjustment[Math.min(...Object.keys(adjustment).map(Number).filter(limit => ccc <= limit).concat(40))] ?? .4
   const ambientBand = ambient <= 30 ? 30 : ambient <= 40 ? 40 : ambient <= 50 ? 50 : 60
