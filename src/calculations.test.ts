@@ -29,6 +29,7 @@ describe('NEC quick-check calculations', () => {
     expect(result.primary).toContain('4/0 Cu')
     expect(result.primary).toContain('250 A')
     expect(result.rows.find(([label]) => label === 'Load apparent power')?.[1]).toBe('153 kVA')
+    expect(result.rows.find(([label]) => label === 'Apparent power per phase')?.[1]).toBe('51 kVA')
   })
 
   it('automatically selects the minimum parallel sets when one conductor would exceed 500 kcmil', () => {
@@ -49,6 +50,7 @@ describe('NEC quick-check calculations', () => {
     expect(result.primary).toContain('6 Cu')
     expect(result.primary).toContain('80 A')
     expect(result.rows.find(([label]) => label === 'MCA apparent load')?.[1]).toBe('21.6 kVA')
+    expect(result.rows.find(([label]) => label === 'Apparent power per phase')?.[1]).toBe('7,205 VA')
   })
 
   it('looks up the binder 208 V three-phase motor FLC values', () => {
@@ -79,6 +81,8 @@ describe('NEC quick-check calculations', () => {
     const base = { fla: 28, type: 'squirrel-cage' as const, fuse: false, phase: 1 as const, material: 'copper' as const, terminal: 75, insulation: 90, ambient: 30, ccc: 3 }
     expect(motorSizing({ ...base, voltage: 115 }).primary).toContain('1-pole')
     expect(motorSizing({ ...base, voltage: 230 }).primary).toContain('2-pole')
+    expect(motorSizing({ ...base, voltage: 115 }).rows.some(([label]) => label === 'Apparent power per phase')).toBe(false)
+    expect(motorSizing({ ...base, voltage: 230 }).rows.find(([label]) => label === 'Apparent power per phase')?.[1]).toBe('6,440 VA')
     const lookup = motorSizing({ ...base, voltage: 240, lookup: { horsepower: 5, tableVoltage: 230 } })
     expect(lookup.rows[0][1]).toContain('240 V system · 230 V column · Table 430.248')
     expect(lookup.rows.find(([label]) => label === 'Motor load')?.[1]).toBe('6,720 VA')
@@ -88,6 +92,7 @@ describe('NEC quick-check calculations', () => {
     const result = motorSizing({ fla: 16.7, type: 'squirrel-cage', fuse: false, phase: 3, voltage: 208, material: 'copper', terminal: 75, insulation: 90, ambient: 30, ccc: 3, lookup: { horsepower: 5, tableVoltage: 208 } })
     expect(result.rows[0][1]).toContain('Table 430.250')
     expect(result.rows.find(([label]) => label === 'Motor load')?.[1]).toBe('6,016 VA')
+    expect(result.rows.find(([label]) => label === 'Apparent power per phase')?.[1]).toBe('2,005 VA')
     const largeMotor = motorSizing({ fla: 30, type: 'squirrel-cage', fuse: false, phase: 3, voltage: 230, material: 'copper', terminal: 75, insulation: 90, ambient: 30, ccc: 3 })
     expect(largeMotor.rows.find(([label]) => label === 'Motor load')?.[1]).toBe('12 kVA')
   })

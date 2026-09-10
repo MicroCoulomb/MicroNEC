@@ -68,10 +68,10 @@ const racewayAreas: Record<string, Record<string, number>> = {
 const nextStandard = (amps: number) => standardOcpd.find(value => value >= amps) ?? null
 const value = (material: Material, temp: number, conductor: Conductor) => conductor[`${material === 'copper' ? 'cu' : 'al'}${temp}` as keyof Conductor] as number
 const display = (number: number) => Number(number.toFixed(1)).toString()
-const apparentLoad = (amps: number, voltage: number, phase: 1 | 3) => {
-  const va = amps * voltage * (phase === 3 ? Math.sqrt(3) : 1)
-  return va >= 10_000 ? `${display(va / 1000)} kVA` : `${Math.round(va).toLocaleString()} VA`
-}
+const apparentLoadVa = (amps: number, voltage: number, phase: 1 | 3) => amps * voltage * (phase === 3 ? Math.sqrt(3) : 1)
+const apparentPower = (va: number) => va >= 10_000 ? `${display(va / 1000)} kVA` : `${Math.round(va).toLocaleString()} VA`
+const circuitPoles = (phase: 1 | 3, voltage: number) => phase === 3 ? 3 : voltage <= 120 ? 1 : 2
+const apparentPowerPerPhase = (va: number, poles: number): [string, string][] => poles === 1 ? [] : [['Apparent power per phase', apparentPower(va / (poles === 3 ? 3 : 1))]]
 const conductorFor = (amps: number, material: Material, terminal: number, insulation: number, ambient: number, ccc: number) => {
   const adjusted = adjustment[Math.min(...Object.keys(adjustment).map(Number).filter(limit => ccc <= limit).concat(40))] ?? .4
   const ambientBand = ambient <= 30 ? 30 : ambient <= 40 ? 40 : ambient <= 50 ? 50 : 60
@@ -95,8 +95,9 @@ export function generalSizing(input: { amps: number; continuous: boolean; materi
   if (wire.size === '10' && input.material === 'copper') breaker = 30
   const voltage = input.voltage ?? 208
   const phase = input.phase ?? 3
-  const loadPower = input.apparentVa === undefined ? apparentLoad(input.amps, voltage, phase) : input.apparentVa >= 10_000 ? `${display(input.apparentVa / 1000)} kVA` : `${Math.round(input.apparentVa).toLocaleString()} VA`
-  return { title: 'Conductor & OCPD', primary: `${sets > 1 ? `${sets} sets of ` : ''}${wire.size} ${input.material === 'copper' ? 'Cu' : 'Al'} · ${breaker ?? 'Manual review'} A OCPD`, rows: [['Design load', `${display(input.amps)} A`],['Load apparent power', loadPower],['System', `${phase}-phase · ${voltage} V`],['Required ampacity', `${display(required)} A`],['Parallel sets per phase', `${sets}`],['Selected conductor ampacity', `${display(ampacity)} A`],['Standard OCPD', breaker ? `${breaker} A` : 'Above table range']], notes: input.continuous ? ['125% continuous-load factor applied.'] : ['Noncontinuous load; no 125% load factor applied.'], citations: ['NEC 210.19(A), 215.2(A), 240.4(D), 240.6(A), Table 310.16'] }
+  const loadVa = input.apparentVa ?? apparentLoadVa(input.amps, voltage, phase)
+  const poles = circuitPoles(phase, voltage)
+  return { title: 'Conductor & OCPD', primary: `${sets > 1 ? `${sets} sets of ` : ''}${wire.size} ${input.material === 'copper' ? 'Cu' : 'Al'} · ${breaker ?? 'Manual review'} A OCPD`, rows: [['Design load', `${display(input.amps)} A`],['Load apparent power', apparentPower(loadVa)],...apparentPowerPerPhase(loadVa, poles),['System', `${phase}-phase · ${voltage} V · ${poles}-pole OCPD`],['Required ampacity', `${display(required)} A`],['Parallel sets per phase', `${sets}`],['Selected conductor ampacity', `${display(ampacity)} A`],['Standard OCPD', breaker ? `${breaker} A` : 'Above table range']], notes: input.continuous ? ['125% continuous-load factor applied.'] : ['Noncontinuous load; no 125% load factor applied.'], citations: ['NEC 210.19(A), 215.2(A), 240.4(D), 240.6(A), Table 310.16'] }
 }
 
 export function motorSizing(input: { fla: number; type: MotorType; fuse: boolean; material: Material; terminal: number; insulation: number; ambient: number; ccc: number; phase?: MotorPhase; voltage?: number; lookup?: { horsepower: number; tableVoltage: number } }): Result {
@@ -106,17 +107,19 @@ export function motorSizing(input: { fla: number; type: MotorType; fuse: boolean
   const voltage = input.voltage ?? 208
   const multipliers: Record<MotorType, number> = { 'squirrel-cage': input.fuse ? 1.75 : 2.5, 'wound-rotor': 1.5, 'synchronous': input.fuse ? 1.75 : 2.5, 'dc': input.fuse ? 1.5 : 2.5 };
   const multiplier = phase === 1 ? (input.fuse ? 1.75 : 2.5) : multipliers[input.type]
-  const poles = phase === 3 ? 3 : voltage === 115 ? 1 : 2
+  const poles = circuitPoles(phase, voltage)
   const ocpd = nextStandard(input.fla * multiplier)
-  const motorLoad = apparentLoad(input.fla, voltage, phase)
-  const rows: [string, string][] = [['System', `${phase}-phase · ${voltage} V · ${poles}-pole OCPD`],['Motor FLA/FLC', `${display(input.fla)} A`],['Motor load', motorLoad],['Required conductor ampacity', `${display(required)} A`],['OCPD multiplier', `${multiplier * 100}%`],['Maximum calculated OCPD', `${display(input.fla * multiplier)} A`]]
+  const motorVa = apparentLoadVa(input.fla, voltage, phase)
+  const rows: [string, string][] = [['System', `${phase}-phase · ${voltage} V · ${poles}-pole OCPD`],['Motor FLA/FLC', `${display(input.fla)} A`],['Motor load', apparentPower(motorVa)],...apparentPowerPerPhase(motorVa, poles),['Required conductor ampacity', `${display(required)} A`],['OCPD multiplier', `${multiplier * 100}%`],['Maximum calculated OCPD', `${display(input.fla * multiplier)} A`]]
   if (input.lookup) rows.unshift(['FLC lookup', `${formatHorsepower(input.lookup.horsepower)} hp · ${voltage} V system · ${input.lookup.tableVoltage} V column · Table ${phase === 1 ? '430.248' : '430.250'}`])
   return { title: 'Motor branch circuit', primary: `${wire?.size ?? 'No size'} ${input.material === 'copper' ? 'Cu' : 'Al'} · ${ocpd ?? 'Manual review'} A ${poles}-pole ${input.fuse ? 'time-delay fuse' : 'inverse-time breaker'}`, rows, notes: ['Motor OCPD is permitted to exceed conductor ampacity under the motor rules. Verify motor starting characteristics and manufacturer instructions.'], citations: ['NEC 430.22', phase === 1 ? 'Table 430.248' : 'Table 430.250', 'Table 430.52', '430.52(C)(1)', 'Table 310.16'] }
 }
 
 export function hvacSizing(mca: number, mocp: number, material: Material, terminal: number, insulation: number, ambient: number, ccc: number, voltage = 208, phase: 1 | 3 = 3): Result {
   const wire = conductorFor(mca, material, terminal, insulation, ambient, ccc)
-  return { title: 'HVAC nameplate circuit', primary: `${wire?.size ?? 'No size'} ${material === 'copper' ? 'Cu' : 'Al'} · up to ${mocp} A OCPD`, rows: [['Listed MCA', `${display(mca)} A`],['MCA apparent load', apparentLoad(mca, voltage, phase)],['System', `${phase}-phase · ${voltage} V`],['Listed MOCP', `${display(mocp)} A`],['Selected conductor', wire ? `${wire.size} ${material === 'copper' ? 'Cu' : 'Al'}` : 'No size']], notes: ['Apparent load is calculated from MCA, not compressor running current. For listed HVAC equipment, use nameplate MCA and MOCP.'], citations: ['NEC 440.6, 440.32, 440.22, Table 310.16'] }
+  const loadVa = apparentLoadVa(mca, voltage, phase)
+  const poles = circuitPoles(phase, voltage)
+  return { title: 'HVAC nameplate circuit', primary: `${wire?.size ?? 'No size'} ${material === 'copper' ? 'Cu' : 'Al'} · up to ${mocp} A OCPD`, rows: [['Listed MCA', `${display(mca)} A`],['MCA apparent load', apparentPower(loadVa)],...apparentPowerPerPhase(loadVa, poles),['System', `${phase}-phase · ${voltage} V · ${poles}-pole OCPD`],['Listed MOCP', `${display(mocp)} A`],['Selected conductor', wire ? `${wire.size} ${material === 'copper' ? 'Cu' : 'Al'}` : 'No size']], notes: ['Apparent load is calculated from MCA, not compressor running current. For listed HVAC equipment, use nameplate MCA and MOCP.'], citations: ['NEC 440.6, 440.32, 440.22, Table 310.16'] }
 }
 
 function legacyEgcSizing(ocpd: number, material: Material, upsizedRatio = 1): Result {
